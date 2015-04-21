@@ -39,6 +39,7 @@ train.f<-train.f[-c(32,41,50)]
 test.f<-test.f[-c(32,41,50)]
 test.f <- test.f[-c(5983,24275,24505),]
 lownoise.f<-lownoise.f[-c(32,41,50)]
+lownoise.f <- lownoise.f[-1384,]
 
 ## Deal with missing values
 
