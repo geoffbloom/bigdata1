@@ -1,0 +1,79 @@
+## Some basic code
+
+## Environment
+setwd("C:/Users/gif/Desktop/RMain/bigdata1")
+library(reshape2)
+library(foreign)
+library(mclust)
+library(plyr)
+library(ggplot2)
+
+## Read the three datasets ##
+
+train<-read.arff("AstronomyTrainingData.txt")
+test<-read.arff("AstronomyTestData.txt")
+lowset<-scan("LowNoiseData.txt")
+lownoise<-test[lowset,]
+
+## Remove row labels and class labels
+
+train.f<-train[-c(1,87)]
+test.f<-test[-c(1,87)]
+lownoise.f<-lownoise[-c(1,87)]
+
+## Remove columns with no variability
+
+range_span<-function(x) return(diff(range(x)))
+range.train<-lapply(train.f,range_span)
+range.test<-lapply(test.f,range_span)
+range.lownoise<-lapply(lownoise.f,range_span)
+
+novar.train<-range.train[range.train==0]
+novar.test<-range.test[range.test==0]
+novar.lownoise<-range.lownoise[range.lownoise==0]
+
+names(train.f)
+
+train.f<-train.f[-c(32,41,50)]
+test.f<-test.f[-c(32,41,50)]
+lownoise.f<-lownoise.f[-c(32,41,50)]
+
+## Deal with missing values
+
+count_missing<-function(x) return(sum(is.na(x)))
+
+## How many values are missing in each column and what proportion is that of the total?
+missing.train<-lapply(train.f, count_missing)
+missing.train<-missing.train[missing.train>0]
+missingprop.train<-lapply(missing.train, function(x) x/length(train[,1]))
+
+missing.test<-lapply(test.f,count_missing)
+missing.test<-missing.test[missing.test>0]
+missingprop.test<-lapply(missing.test, function(x) x/length(test[,1]))
+
+missing.lownoise<-lapply(lownoise.f,count_missing)
+missing.lownoise<-missing.lownoise[missing.lownoise>0]
+missingprop.lownoise<-lapply(missing.lownoise, function(x) x/length(lownoise[,1]))
+  
+
+train.f.complete<-train.f[-match(names(missing.train),names(train.f))]
+
+## This is overkill, for test data just remove a few rows instead of the whole small 
+## kurtosis column
+test.f.complete<-test.f[-match(names(missing.test),names(test.f))]
+lownoise.f.complete<-lownoise.f[-match(names(missing.lownoise),names(lownoise.f))]
+
+## Create standardized versions of each dataset
+
+## z-score standardization
+
+train.f.z<-data.frame(scale(train.f.complete))
+test.f.z<-data.frame(scale(test.f.complete))
+lownoise.f.z<-data.frame(scale(lownoise.f.complete))
+
+## scale to zero-one
+
+scale_zero_one<-function(x) return( (x-min(x))/(max(x)-min(x)) )
+train.f.01<-data.frame(apply(train.f.complete, 2, scale_zero_one))
+test.f.01<-data.frame(apply(test.f.complete, 2, scale_zero_one))
+lownoise.f.01<-data.frame(apply(test.f.complete,2,scale_zero_one))
