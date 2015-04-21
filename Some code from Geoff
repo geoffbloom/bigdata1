@@ -77,3 +77,26 @@ scale_zero_one<-function(x) return( (x-min(x))/(max(x)-min(x)) )
 train.f.01<-data.frame(apply(train.f.complete, 2, scale_zero_one))
 test.f.01<-data.frame(apply(test.f.complete, 2, scale_zero_one))
 lownoise.f.01<-data.frame(apply(test.f.complete,2,scale_zero_one))
+
+## Group the class labels into top three branches
+
+label<-train$class
+toplabel<-rep("XXX",length(label))
+for(i in 1:length(label)){
+  if(label[i] %in% c("Mira", "Semiregular Pulsating Variable","RV Tauri","Classical Cepheid", 
+  "Population II Cepheid", "Multiple Mode Cepheid", "RR Lyrae, Fundamental Mode", 
+  "RR Lyrae, First Overtone", "RR Lyrae, Double Mode", "Delta Scuti", 
+  "Lambda Bootis Variable","Beta Cephei","Slowly Pulsating B-stars",
+  "Gamma Doradus")){
+  toplabel[i]<-"Pulsating"
+  }else if(label[i] %in% c( "Periodically variable supergiants","Chemically Peculiar Stars", "Wolf-Rayet",
+  "T Tauri", "Herbig AE/BE Star", "S Doradus")){
+   toplabel[i]<-"Eruptive"
+  }else if(label[i] %in% c("Ellipsoidal","Beta Persei",  "Beta Lyrae" ,"W Ursae Majoris" )){
+   toplabel[i]<-"Multistar"
+  }
+}
+
+toplabel.num<-revalue(factor(toplabel),c("Pulsating"="1","Eruptive"="2","Multistar"=3,"XXX"="4"))
+table(toplabel.num)
+table(toplabel)
