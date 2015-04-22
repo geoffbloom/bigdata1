@@ -12,10 +12,11 @@ library(diffusionMap)
 ## Read the three datasets ##
 
 train<-read.arff("AstronomyTrainingData.txt")
-test<-read.arff("AstronomyTestData.txt")
+test0<-read.arff("AstronomyTestData.txt")
+test<- test0[-c(5983,24275,24505),]
 lowset<-scan("LowNoiseData.txt")
-lownoise<-test[lowset,]
-
+lownoise<-test0[lowset,]
+lownoise <- lownoise[-1384,]
 ## Remove row labels and class labels
 
 train.f<-train[-c(1,87)]
