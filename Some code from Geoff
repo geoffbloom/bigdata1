@@ -1,23 +1,27 @@
 ## Some basic code
 
+## Some basic code
+
 ## Environment
-setwd("C:/Users/gif/Desktop/RMain/bigdata1")
+setwd("C:/Users/Casey/Documents/Spring 2015/ST 599")
 library(reshape2)
 library(foreign)
 library(mclust)
 library(plyr)
 library(ggplot2)
 library(diffusionMap)
-
+library(protoclust)
+library(car)
+library(rgl)
 ## Read the three datasets ##
 
 train<-read.arff("AstronomyTrainingData.txt")
 test<-read.arff("AstronomyTestData.txt")
+test <- test[-c(5983,24275,24505),]
 lowset<-scan("LowNoiseData.txt")
 lownoise<-test[lowset,]
-
+lownoise <- lownoise[-1384,]
 ## Remove row labels and class labels
-
 train.f<-train[-c(1,87)]
 test.f<-test[-c(1,87)]
 lownoise.f<-lownoise[-c(1,87)]
@@ -33,13 +37,9 @@ novar.train<-range.train[range.train==0]
 novar.test<-range.test[range.test==0]
 novar.lownoise<-range.lownoise[range.lownoise==0]
 
-names(train.f)
-
-train.f<-train.f[-c(32,41,50)]
-test.f<-test.f[-c(32,41,50)]
-test.f <- test.f[-c(5983,24275,24505),]
-lownoise.f<-lownoise.f[-c(32,41,50)]
-lownoise.f <- lownoise.f[-1384,]
+train.f<-train.f[,-c(32,41,50)]
+test.f<-test.f[,-c(32,41,50)]
+lownoise.f<-lownoise.f[,-c(32,41,50)]
 
 ## Deal with missing values
 
@@ -57,12 +57,9 @@ missingprop.test<-lapply(missing.test, function(x) x/length(test[,1]))
 missing.lownoise<-lapply(lownoise.f,count_missing)
 missing.lownoise<-missing.lownoise[missing.lownoise>0]
 missingprop.lownoise<-lapply(missing.lownoise, function(x) x/length(lownoise[,1]))
-  
+
 
 train.f.complete<-train.f[-match(names(missing.train),names(train.f))]
-
-## This is overkill, for test data just remove a few rows instead of the whole small 
-## kurtosis column
 test.f.complete<-test.f[-match(names(missing.test),names(test.f))]
 lownoise.f.complete<-lownoise.f[-match(names(missing.lownoise),names(lownoise.f))]
 
@@ -80,6 +77,50 @@ scale_zero_one<-function(x) return( (x-min(x))/(max(x)-min(x)) )
 train.f.01<-data.frame(apply(train.f.complete, 2, scale_zero_one))
 test.f.01<-data.frame(apply(test.f.complete, 2, scale_zero_one))
 lownoise.f.01<-data.frame(apply(test.f.complete,2,scale_zero_one))
+
+### clusters
+
+train_clust <- hclust(dist(train.f.01))
+plot(train_clust, labels = FALSE)
+rect.hclust(train_clust, k = 25, border = "red")
+
+
+pclust <- protoclust(dist(train.f.01))
+plot(pclust, labels = FALSE)
+rect.hclust(pclust, k = 25, border = "red")
+
+##PCA
+train_pca <- princomp(train.f.complete)
+train_z_pca <- princomp(train.f.z)
+train_01_pca <- princomp(train.f.01)
+plot(train_01_pca)
+biplot(train_pca, arrow.len=0)
+biplot(train_z_pca, arrow.len=0)
+biplot(train_01_pca)
+
+plot(train_pca$score[,1], train_pca$score[,2])
+plot(train_z_pca$score[,1], train_z_pca$score[,2])
+plot(train_01_pca$score[,1], train_01_pca$score[,2])
+scatter3d(train_01_pca$score[,1],train_01_pca$score[,2],train_01_pca$score[,3], surface.alpha = 0.3)
+
+
+test_01_pca <- princomp(test.f.01)
+###dendrogram using pca
+
+train_01_pcaclust <- protoclust(dist(train_01_pca$scores[,1:20]))
+plot(train_01_pcaclust, labels = F)
+test_01_pcaclust <- protoclust(dist(test_01_pca$scores[1:1500, 1:20]))
+plot(test_01_pcaclust, labels = F)
+
+
+###
+
+reg.k.means <- kmeans(train.f.01, centers = 4)
+d_train_01 <- diffuse(dist(train.f.01))
+d.k.means <- diffusionKmeans(d_train_01, K = 4)
+
+table(reg.k.means$cluster)
+table(d.k.means$part)
 
 ## Group the class labels into top three branches
 
