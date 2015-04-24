@@ -1,0 +1,602 @@
+---
+title: "Astronomy Data Exploration"
+author: "Casey Bausell, Geoff Bloom, Xijun Yang"
+date: "Friday, April 24, 2015"
+output: slidy_presentation
+---
+
+## None of you need to be told what this data is, so...
+
+```{r setup_environ,echo=FALSE}
+## Environment
+library(knitr)
+knitr::opts_chunk$set(echo=FALSE, cache=TRUE, message=FALSE, warning=FALSE, tidy=TRUE)
+library(reshape2)
+library(foreign)
+suppressMessages(library(mclust, warn.conflicts = FALSE, quietly=TRUE))
+library(plyr)
+library(ggplot2)
+suppressMessages(library(diffusionMap))
+suppressMessages(library(ggdendro))
+library(car)
+library(rgl)
+suppressMessages(library(protoclust))
+suppressMessages(library(gridExtra))
+library(formatR)
+set.seed(007)
+```
+
+```{r read_and_clean}
+## Read the three datasets
+setwd("C:/Users/gif/Desktop/RMain/bigdata1")
+train<-read.arff("AstronomyTrainingData.txt")
+test0<-read.arff("AstronomyTestData.txt")
+test<- test0[-c(5983,24275,24505),]
+lowset<-scan("LowNoiseData.txt")
+lownoise<-test0[lowset,]
+lownoise <- lownoise[-1384,]
+## Remove row labels and class labels
+
+train.f<-train[-c(1,87)]
+test.f<-test[-c(1,87)]
+lownoise.f<-lownoise[-c(1,87)]
+
+## Remove columns with no variability
+
+range_span<-function(x) return(diff(range(x)))
+range.train<-lapply(train.f,range_span)
+range.test<-lapply(test.f,range_span)
+range.lownoise<-lapply(lownoise.f,range_span)
+
+novar.train<-range.train[range.train==0]
+novar.test<-range.test[range.test==0]
+novar.lownoise<-range.lownoise[range.lownoise==0]
+
+train.f<-train.f[-c(32,41,50)]
+test.f<-test.f[-c(32,41,50)]
+test.f <- test.f[-c(5983,24275,24505),]
+lownoise.f<-lownoise.f[-c(32,41,50)]
+lownoise.f <- lownoise.f[-1384,]
+
+## Deal with missing values
+
+count_missing<-function(x) return(sum(is.na(x)))
+
+## How many values are missing in each column and what proportion is that of the total?
+missing.train<-lapply(train.f, count_missing)
+missing.train<-missing.train[missing.train>0]
+missingprop.train<-lapply(missing.train, function(x) x/length(train[,1]))
+
+missing.test<-lapply(test.f,count_missing)
+missing.test<-missing.test[missing.test>0]
+missingprop.test<-lapply(missing.test, function(x) x/length(test[,1]))
+
+missing.lownoise<-lapply(lownoise.f,count_missing)
+missing.lownoise<-missing.lownoise[missing.lownoise>0]
+missingprop.lownoise<-lapply(missing.lownoise, function(x) x/length(lownoise[,1]))
+
+
+train.f.complete<-train.f[-match(names(missing.train),names(train.f))]
+test.f.complete<-test.f[-match(names(missing.test),names(test.f))]
+lownoise.f.complete<-lownoise.f[-match(names(missing.lownoise),names(lownoise.f))]
+```
+
+```{r standardize_data}
+## Create standardized versions of each dataset
+
+## z-score standardization
+
+train.f.z<-data.frame(scale(train.f.complete))
+test.f.z<-data.frame(scale(test.f.complete))
+lownoise.f.z<-data.frame(scale(lownoise.f.complete))
+
+## scale to zero-one
+
+scale_zero_one<-function(x) return( (x-min(x))/(max(x)-min(x)) )
+train.f.01<-data.frame(apply(train.f.complete, 2, scale_zero_one))
+test.f.01<-data.frame(apply(test.f.complete, 2, scale_zero_one))
+lownoise.f.01<-data.frame(apply(test.f.complete,2,scale_zero_one))
+```
+
+```{r subsample_test}
+testsample.f.01<-test.f.01[sample(x=seq(1:length(test$class)),size=1e4),]
+```
+
+```{r make_univariate_plots}
+## univariate plots
+train.long<-data.frame(melt(train.f.01))
+
+facet.univariate.1<-ggplot(data=head(train.long,(1539*38)))+
+  facet_grid(variable~.,scales = "free")+
+  geom_density(aes(x=value,fill=variable),adjust=1/2)+
+  ggtitle("Univariate densities")+
+  theme(axis.line=element_blank(),
+      axis.text.x=element_blank(),
+      axis.text.y=element_blank(),
+      axis.ticks=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank(),
+      legend.position="none",      
+      panel.border=element_blank(),      
+      panel.grid.minor=element_blank(),
+      panel.background=element_blank(),
+      plot.background=element_blank(),
+      strip.background = element_blank(),
+      strip.text.x = element_blank(),
+      panel.grid.major=element_blank())
+
+facet.univariate.2<-facet.univariate.1 %+% tail(train.long,(1539*38+1))
+
+```
+
+## Pre-Processing
+
+What we did to the data before the analysis
+
+- Cleaning
+    - Removed the six variables including the "color" variables from all data sets because there were many missing values
+    - Deleted rows for few other missing values
+
+- Subset only 10k rows from the test data to make it more computationally manageable
+
+- Scales of original variables were not commensurable - standardized them
+    - Tried the z-score standardization, but there are some strange distributions, outliers.  
+    - Tried median-centering and division by MAD, but zero-inflation produces `Inf`s.
+    - Settled on setting all variables to have 0-1 range.
+    - More on relative scaling of variables later
+
+## Univariate Plots (first half)
+
+```{r,fig.height=8,fig.width=10}
+facet.univariate.1
+```
+
+## Univariate Plots (second half)
+```{r,fig.height=8, fig.width=10}
+facet.univariate.2
+```
+
+## Effect of scaling on PCA
+
+```{r PCA}
+## PCA
+train_pca <- princomp(train.f.complete)
+train_z_pca <- princomp(train.f.z)
+train_01_pca <- princomp(train.f.01)
+testsample_01_pca <-princomp(testsample.f.01)
+lownoise_01_pca<-princomp(lownoise.f.01)
+```
+
+See 3D plots in R
+
+## Question 1
+
+**Is there "agreement" between different clustering methods within one subset of the data?**
+
+- Worked mainly with the training set
+- Tried several forms of hierarchical and and optimal clustering
+- Agreement between clustering results was assessed by adjusted Rand Index between each pair of clustering methods: 
+- The Rand Index checks whether pairs of points that are clustered together by one method are also clustered together by the method.  Number of clusters can be different.
+
+```{r randindexdef}
+row1<-c("RI < 0", " ", "RI = 0", " ", "RI > 0", " ", "RI = 1")
+row2<-c("Worse than", " ", "chance", " ", "better than", " ", "Perfect")
+row3<-c("chance", " ", "level", " ", "chance", " ", "agreement")
+table<-rbind(row1,row2,row3)
+
+```
+`r kable(table,caption = "Interpretation of Rand Index",row.names=F,  col.names=rep("",7))`
+
+## Question 2
+c
+**Are there clusters in the training data which "agree" with the known science class labels?**
+
+- That is, can we learn some of the labels without supervision?
+- Could try to characterize this at the level of matching all 24 [25] class labels
+- OR just consider whether clustering was "correct" at the level of the top 3 categories
+
+![classhier](classhierarchy.png)
+
+## Question 2 - Find classes unsupervised?
+
+- Looks like it might work?
+
+```{r pca_with_class}
+## 2D PC plots of train with class labels
+
+train_class<-train$class
+
+component1.train<-train_01_pca$scores[,1]
+component2.train<-train_01_pca$scores[,2]
+component3.train<-train_01_pca$scores[,3]
+component4.train<-train_01_pca$scores[,4]
+
+df.train<-data.frame(component1.train, component2.train,component3.train, component4.train, factor(train_class))
+
+pc12.train<-ggplot(data=df.train, aes(x=component1.train , y = component2.train, color = factor(train_class), shape=factor(train_class)))+
+  geom_point()+
+  scale_shape_manual(values=1:25) +
+  ggtitle("True training classes \n PC 1 vs PC 2")+theme_bw(base_family = "serif")
+pc12.train
+```
+
+
+```{r def_RITable}
+RandIndexTable<-function(input){
+RandIndex.matrix<-matrix(0,ncol(input),ncol(input))
+for(i in 1:ncol(input)){
+    for(j in 1:ncol(input)){
+      RandIndex.matrix[i,j]<-round(adjustedRandIndex(input[,i],input[,j]),3)
+    }
+}
+RandIndex<-data.frame(RandIndex.matrix)
+colnames(RandIndex)<-rownames(RandIndex)<-colnames(input) 
+return(RandIndex)
+}
+```
+
+```{r toplabel}
+## Group the class labels into top three branches
+
+label<-train$class
+toplabel<-rep("XXX",length(label))
+for(i in 1:length(label)){
+  if(label[i] %in% c("Mira", "Semiregular Pulsating Variable","RV Tauri","Classical Cepheid", 
+                     "Population II Cepheid", "Multiple Mode Cepheid", "RR Lyrae, Fundamental Mode", 
+                     "RR Lyrae, First Overtone", "RR Lyrae, Double Mode", "Delta Scuti", 
+                     "Lambda Bootis Variable","Beta Cephei","Slowly Pulsating B-stars",
+                     "Gamma Doradus")){
+    toplabel[i]<-"Pulsating"
+  }else if(label[i] %in% c( "Periodically variable supergiants","Chemically Peculiar Stars", "Wolf-Rayet",
+                            "T Tauri", "Herbig AE/BE Star", "S Doradus")){
+    toplabel[i]<-"Eruptive"
+  }else if(label[i] %in% c("Ellipsoidal","Beta Persei",  "Beta Lyrae" ,"W Ursae Majoris" )){
+    toplabel[i]<-"Multistar"
+  }
+}
+```
+
+
+```{r calc_dist, include=FALSE}
+## Precalculate all distance matrices
+d.f.01<-dist(train.f.01)
+d.f.z<-dist(train.f.z)
+d.f.01.l1<-dist(train.f.01,method = "manhattan")
+d.f.pca.01<-dist(train_01_pca$scores[,1:20])
+d.f.pca.z<-dist(train_z_pca$scores[,1:20])
+d_train_01 <- diffuse(dist(train.f.01))
+d_train_z <- diffuse(dist(train.f.z))
+```
+
+## Hierarchical clustering
+```{r dendrogram}
+train_clust_01 <- hclust(d.f.01)
+dendro<-plot(train_clust_01, labels = FALSE)
+rect.hclust(train_clust_01, k = 25, border = "red") 
+```
+
+```{r clustering,include=FALSE}
+D0<-matrix(0,nrow=14,ncol=14)
+D<-list(D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0,D0)
+g<-NULL
+
+for(nclust in 2:25){
+
+train_clust_01 <- hclust(d.f.01)
+train_z_clust <- hclust(d.f.z)
+train_z_pclust <- protoclust(d.f.z)
+pclust_01 <- protoclust(d.f.01)
+man_clust_01 <- protoclust(d.f.01.l1)
+train_z_pca <- princomp(train.f.z)
+train_01_pca <- princomp(train.f.01)
+train_01_pcapclust <- protoclust(d.f.pca.01)
+train_z_pcapclust <- protoclust(d.f.pca.z)
+train_01_pcaclust <- hclust(d.f.pca.01)
+
+## Cut trees
+
+cut.h.01 <- cutree(train_clust_01, k = nclust)
+cut.p.01 <- cutree(pclust_01, k = nclust)
+cut.h.z <- cutree(train_z_clust, k = nclust)
+cut.p.z <- cutree(train_z_pclust, k = nclust)
+cut.pca.p.01 <- cutree(train_01_pcapclust, k = nclust)
+cut.pca.p.z <- cutree(train_z_pcapclust, k = nclust)
+cut.pca.h.01 <- cutree(train_01_pcaclust, k = nclust)
+cut.man.p.01 <-cutree(man_clust_01, k = nclust)
+
+## optimal clustering
+d.k.means_z <- diffusionKmeans(d_train_z, K = nclust)
+reg.k.means_01 <- kmeans(train.f.01, centers = nclust)
+reg.k.means_z <- kmeans(train.f.01, centers = nclust)
+d.k.means_01 <- diffusionKmeans(d_train_01, K = nclust)
+
+## Heatmap
+
+
+D[[nclust]] <- matrix(c(d.k.means_z$part, reg.k.means_01$cluster, reg.k.means_z$cluster,d.k.means_01$part,cut.h.01,
+               cut.p.01,cut.h.z,cut.p.z,cut.pca.p.01,cut.pca.p.z,cut.pca.h.01,
+               cut.man.p.01,toplabel,train$class), ncol = 14)
+
+colnames(D[[nclust]]) <- c("d 01","d z", "km 01", "km z","cl 01 c","cl01 m",
+                  "cl z c","cl z m","pcacl 01 m","pcacl 01 c","pcac z m",
+                  "cl manh", "correct 3", "correct 25")
+
+D[[nclust]] <- RandIndexTable(D[[nclust]])
+
+
+D[[nclust]] <- data.frame(D[[nclust]],colnames(D[[nclust]]))
+
+heat<- melt(D[[nclust]])
+heat<-data.frame(heat,rep(levels(heat$variable),14))
+colnames(heat)<-c("cols","variable","value", "levels")
+
+g[[nclust]]<-ggplot(heat) + geom_tile(aes(x=variable, y=factor(c(rep(sort(head(levels,14)),14))),                                      
+                             fill = value),
+                           colour = "white") + scale_fill_gradient(low = "white",
+                                                                   high = "steelblue")+
+  scale_y_discrete(labels=colnames(D[[nclust]]),name="")
+
+}
+
+```
+
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 2
+
+```{r plot2} 
+g[[2]]
+
+## Yeah I know, "two or more, use a 'for'".  I've done enough clever things in this code already.
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 3
+
+```{r plot3} 
+g[[3]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 4
+
+```{r plot4} 
+g[[4]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 5
+
+```{r plot5} 
+g[[5]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 6
+
+```{r plot6} 
+g[[6]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 7
+
+```{r plot7} 
+g[[7]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 8
+
+```{r plot8} 
+g[[8]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 9
+
+```{r plot9} 
+g[[9]]
+`````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 10
+
+```{r plot10} 
+g[[10]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 11
+
+```{r plot11} 
+g[[11]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 12
+
+```{r plot12} 
+g[[12]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 13
+
+```{r plot13} 
+g[[13]]
+````
+
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 14
+
+```{r plot14} 
+g[[14]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 15
+
+```{r plot15} 
+g[[15]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 16
+
+```{r plot16} 
+g[[16]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 17
+
+```{r plot17} 
+g[[17]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 18
+
+```{r plot18} 
+g[[18]]
+````
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 19
+
+```{r plot19} 
+g[[19]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 20
+
+```{r plot20} 
+g[[20]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 21
+
+```{r plot21} 
+g[[21]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 22
+
+```{r plot22} 
+g[[22]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 23
+
+```{r plot23} 
+g[[23]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 24
+
+```{r plot24} 
+g[[24]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+K = 25
+
+```{r plot25} 
+g[[25]]
+```
+
+## Questions 2 and 3 - Agreement between methods and with known class labels
+
+Looks like they're not working so well for any K in 2:25
+
+
+
+
+## Question 3
+
+**Is the "shape" of the data similar between the training set, test set, and lownoise subset of test?**
+
+- Since it is difficult to quantitatively assess clustering similarity when different sets of objects are being clustered, we had to settle for graphical comparisons.
+
+**See R for plots**
+
+>- They look pretty similar
+
+>- There are two distinct clusters, but we're still not sure what class labels they correspond with, if any.  Our different clustering procedures did not reliably make the same clusters when $k = 2$, which is suspicious.
+
+## Obstacles -- General Vagueness{.bigger}  
+
+- Lack of background domain knowledge
+    - How can we interpret these variables in the scientific (astronomical) context?
+    - Sought help from physics instructors - didn't get far
+    - Who knows how particular variables should be weighted?
+        - e.g. `eclpoly_is_suspect`
+
+- Lack of clear goals
+    - Combinatorial explosion of options and techniques 
+    - Clustering problem not well-defined - What qualifies as a 'good' solution?
+
+> "Although simple generic prescriptions for choosing the individual attribute dissimilarities $d_j(x_{ij}, x_{i'j})$ and their weights $w_j$ can be comforting, there is no substitute for careful thought in the context of each individual problem. Specifying an appropriate dissimilarity measure is far more important in obtaining success with clustering than choice of clustering algorithm. This aspect of the problem is emphasized less in the clustering literature than the algorithms themselves, since it depends on domain knowledge specifics and is less amenable to general research."
+
+> ESL II, p. 505
+
+## Obstacles and solutions -- The Data is Big! {.bigger}
+
+- Large number of rows makes distance matrix large, regardless of number of columns. 
+
+    >- Did not actually get much done with the test data, but subsetting does it make it more feasible.
+    
+- Large number of columns makes computations slower, given the same number of rows.
+  
+    >- Can reduce dimension first, then try other things.  For instance, can cluster in the space of the first $k$ PC's, instead of the the full feature space.
+
+
+## Further Directions
+
+- Extending R for larger datasets
+      - Packages `ff`, `bigmemory` - work with objects that don't fit in RAM
+      - Use tricks for saving memory - e.g., scale up `numeric` values and store them as `integers`, use half as much space.
+      - Get CUDA and `rpud` to work for parallelized calculations on the GPU
+  
+- Diffusion mapping  ![swissroll](swissroll.png)
+      - Generalization of spectral clustering
+      - Refines point-to-point distances using average length of random walk paths between points
+      - Automatically discovers non-linear lower-dimensional geometry of data manifold embedded in large variable space.
+ 
+
+
+
+
+
+
