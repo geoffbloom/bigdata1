@@ -1,0 +1,34 @@
+##########################################
+## 3D plots for 'preprocessing' section ##
+##########################################
+
+## TRAIN unscaled - uninterpretable
+
+plot3d(train_pca$score[,1],train_pca$score[,2],train_pca$score[,3], col = rainbow(1000))
+
+## TRAIN z scale - better, still weird
+plot3d(train_z_pca$score[,1],train_z_pca$score[,2],train_z_pca$score[,3], col = rainbow(1000))
+
+## TRAIN 01 scale - looks good 
+plot3d(train_01_pca$score[,1],train_01_pca$score[,2],train_01_pca$score[,3], col = rainbow(1000))
+
+
+
+
+
+
+##########################################
+## 3D plots for 'test vs train' section ##
+##########################################
+
+## All on 01 ##
+
+## TRAIN  
+plot3d(train_01_pca$score[,1],train_01_pca$score[,2],train_01_pca$score[,3], col = rainbow(1000))
+
+## TEST random subset
+plot3d(testsample_01_pca$score[,1],testsample_01_pca$score[,2],testsample_01_pca$score[,6], col = rainbow(1000))
+
+## TEST lownoise subset
+plot3d(lownoise_01_pca$score[,1],lownoise_01_pca$score[,2],lownoise_01_pca$score[,3], col = rainbow(1000))
+
